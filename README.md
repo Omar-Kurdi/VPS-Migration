@@ -18,8 +18,9 @@ decision.
 - `migrate.conf.example` — copy to `migrate.conf` and fill in the new VPS's
   address/key.
 - `02-migrate.sh` — run on the **old** VPS. Copies configs, websites,
-  WireGuard, Squid, certs, cron, firewall rules, and (optionally) databases
-  to the new VPS over SSH/rsync. Safe to re-run.
+  WireGuard, Squid, certs, cron, firewall rules, `/root`, `/usr/local/bin`,
+  `/usr/local/sbin`, `/opt` (your own scripts usually live in one of these),
+  and (optionally) databases to the new VPS over SSH/rsync. Safe to re-run.
 - `03-post-migrate.sh` — run on the **new** VPS. Installs matching packages,
   fixes permissions, enables services, imports any DB dumps, and prints a
   manual checklist for DNS/TLS/firewall/WireGuard-endpoint steps.
@@ -62,6 +63,12 @@ decision.
 
 ## Things worth knowing up front
 
+- **Your own scripts/tools** (like `jails.sh`): `02-migrate.sh` copies
+  `/root`, `/usr/local/bin`, `/usr/local/sbin`, and `/opt` by default, which
+  covers where personal admin scripts almost always live. If yours live
+  somewhere else (a non-root user's home dir, some other folder), check the
+  "CUSTOM / PERSONAL SCRIPTS" section of `inventory.txt` and add the exact
+  paths to `EXTRA_PATHS` in `migrate.conf` before running `02-migrate.sh`.
 - **WireGuard**: server keys/configs move over untouched. The one thing
   that *must* change is the `Endpoint =` line in every client's config,
   since that points at the old public IP. Consider pointing it at a DNS

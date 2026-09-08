@@ -33,6 +33,7 @@ NEW_SSH_KEY="${NEW_SSH_KEY:-}"
 COPY_HOME_DIRS="${COPY_HOME_DIRS:-no}"
 DUMP_MYSQL="${DUMP_MYSQL:-no}"
 DUMP_POSTGRES="${DUMP_POSTGRES:-no}"
+EXTRA_PATHS=("${EXTRA_PATHS[@]:-}")
 
 SSH_OPTS=(-p "$NEW_SSH_PORT" -o StrictHostKeyChecking=accept-new)
 [ -n "$NEW_SSH_KEY" ] && SSH_OPTS+=(-i "$NEW_SSH_KEY")
@@ -122,6 +123,23 @@ if [ "$COPY_HOME_DIRS" = "yes" ]; then
   echo
   echo "=== /home (full, as requested by COPY_HOME_DIRS=yes) ==="
   copy /home
+fi
+
+echo
+echo "=== Your own scripts / custom tools ==="
+echo "  (/root, /usr/local/bin, /usr/local/sbin, /opt - copied by default since"
+echo "   this is where personal admin scripts like jails.sh usually live)"
+copy /root
+copy /usr/local/bin
+copy /usr/local/sbin
+copy /opt
+
+if [ "${#EXTRA_PATHS[@]}" -gt 0 ]; then
+  echo
+  echo "=== EXTRA_PATHS from migrate.conf ==="
+  for p in "${EXTRA_PATHS[@]}"; do
+    [ -n "$p" ] && copy "$p"
+  done
 fi
 
 DUMP_DIR="/root/vps-migration-dumps"

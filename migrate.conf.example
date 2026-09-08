@@ -20,6 +20,18 @@ NEW_SSH_KEY=""
 # personal files you may not want moved wholesale). Default: no.
 COPY_HOME_DIRS="no"
 
+# Any extra files or folders to copy that the standard list misses - your
+# own scripts, custom tools, one-off configs (e.g. ./jails.sh). Check
+# inventory.txt's "CUSTOM / PERSONAL SCRIPTS" section for candidates, then
+# list their FULL absolute paths here, one per line, inside the parentheses.
+# 02-migrate.sh copies /root, /usr/local/bin, /usr/local/sbin and /opt by
+# default already - this is for anything outside those, e.g. things in a
+# non-root user's home directory or somewhere unusual.
+EXTRA_PATHS=(
+  # "/root/jails.sh"
+  # "/home/myuser/scripts"
+)
+
 # Set to "yes" to dump and copy MySQL/MariaDB databases automatically.
 # Requires that running `mysqldump` on the old VPS as root/sudo just works
 # (typical on Ubuntu with debian.cnf, or root socket auth).

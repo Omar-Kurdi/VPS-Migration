@@ -175,6 +175,26 @@ for d in /var/www /srv /home/*/public_html /opt; do
   [ -d "$d" ] && { echo "--- $d ---" >> "$INV"; ls -la "$d" >> "$INV" 2>&1; }
 done
 
+section "CUSTOM / PERSONAL SCRIPTS - these are NOT copied automatically by 02-migrate.sh"
+echo "Anything listed here (your own .sh/.py/.pl scripts, one-off tools) needs" >> "$INV"
+echo "to be added to EXTRA_PATHS in migrate.conf, or it will be left behind." >> "$INV"
+echo >> "$INV"
+echo "--- executable scripts in /root (top 2 levels) ---" >> "$INV"
+find /root -maxdepth 2 -type f \( -perm -u+x -o -name "*.sh" -o -name "*.py" -o -name "*.pl" \) 2>/dev/null >> "$INV"
+echo "--- executable scripts under /home/*/ (top 2 levels, excluding public_html) ---" >> "$INV"
+find /home -maxdepth 3 -type f \( -perm -u+x -o -name "*.sh" -o -name "*.py" -o -name "*.pl" \) \
+  -not -path "*/public_html/*" 2>/dev/null >> "$INV"
+echo "--- /usr/local/bin and /usr/local/sbin (custom binaries/scripts, not from apt) ---" >> "$INV"
+ls -la /usr/local/bin /usr/local/sbin >> "$INV" 2>&1
+echo "--- /opt (third-party / hand-installed software often lives here) ---" >> "$INV"
+find /opt -maxdepth 2 2>/dev/null >> "$INV"
+echo "--- files in /root and /home/* NOT owned by any apt package (best-effort, may be slow) ---" >> "$INV"
+{
+  for f in $(find /root /home /usr/local/bin /usr/local/sbin /opt -maxdepth 3 -type f 2>/dev/null); do
+    dpkg -S "$f" >/dev/null 2>&1 || echo "$f"
+  done
+} >> "$INV" 2>&1
+
 section "DISK USAGE (so you know what's big before you copy it)"
 { df -h; echo; du -sh /var/www /etc /home /opt /srv 2>/dev/null; } >> "$INV"
 
