@@ -1,0 +1,29 @@
+# ============================================================================
+# migrate.conf
+#
+# Copy this file to "migrate.conf" (same folder) and fill in your real
+# values. 02-migrate.sh reads this file. You run 02-migrate.sh ON THE OLD
+# VPS - it pushes files to the NEW VPS over SSH/rsync.
+# ============================================================================
+
+# SSH connection details for the NEW (destination) VPS, as reachable FROM
+# the old VPS.
+NEW_HOST="new.server.ip.or.hostname"
+NEW_USER="root"
+NEW_SSH_PORT="22"
+# Path (ON THE OLD VPS) to a private key that logs into the NEW VPS.
+# Easiest: ssh-copy-id -p 22 root@NEW_HOST from the old VPS first, using a
+# fresh keypair, then point this at it. Leave blank to use ssh-agent/default.
+NEW_SSH_KEY=""
+
+# Set to "yes" to also copy full /home directories (can be large / contain
+# personal files you may not want moved wholesale). Default: no.
+COPY_HOME_DIRS="no"
+
+# Set to "yes" to dump and copy MySQL/MariaDB databases automatically.
+# Requires that running `mysqldump` on the old VPS as root/sudo just works
+# (typical on Ubuntu with debian.cnf, or root socket auth).
+DUMP_MYSQL="no"
+
+# Set to "yes" to dump and copy PostgreSQL databases automatically.
+DUMP_POSTGRES="no"
