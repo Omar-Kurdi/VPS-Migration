@@ -16,6 +16,27 @@ NEW_SSH_PORT="22"
 # fresh keypair, then point this at it. Leave blank to use ssh-agent/default.
 NEW_SSH_KEY=""
 
+# Preview mode. "yes" runs every rsync with --dry-run and skips the remote
+# package install and the database dumps - nothing on either box is changed.
+# Run once with this set to yes to confirm NEW_HOST is really the box you
+# think it is before pushing files to / as root.
+DRY_RUN="no"
+
+# Install the old box's packages on the new box BEFORE copying configs over.
+# This ordering matters: if configs land first and packages are installed
+# afterwards, dpkg has to decide what to do with config files it doesn't have
+# a record of - not a decision you want to leave to a prompt default during a
+# server migration. Installing first means the copied configs land last and win.
+# Set to "no" only if you have already provisioned the new box yourself.
+INSTALL_PACKAGES="yes"
+
+# The old VPS's public IP. Left blank, it is read from meta.env, which
+# 01-discover.sh writes after auto-detecting it. 03-post-migrate.sh greps the
+# copied configs for this address, since it is hardcoded in more places than
+# you remember (nginx listen directives, squid ACLs, fail2ban ignoreip,
+# wireguard, monitoring agents).
+OLD_IP=""
+
 # Set to "yes" to also copy full /home directories (can be large / contain
 # personal files you may not want moved wholesale). Default: no.
 COPY_HOME_DIRS="no"

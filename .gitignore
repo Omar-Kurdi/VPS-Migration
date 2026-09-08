@@ -1,0 +1,5 @@
+migrate.conf
+inventory.txt
+*.list
+verify-report.txt
+*.sql
