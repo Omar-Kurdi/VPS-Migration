@@ -137,6 +137,46 @@ else
 fi
 
 echo
+echo "=== 4b. WireGuard server identity (not just the client configs) ==="
+# "I'll just regenerate the clients" does not work on its own: the common
+# wireguard-install.sh keeps the server's public address in /etc/wireguard/params
+# and reads it when generating each new client. Copied unchanged, every client
+# you create ON THIS BOX is handed the OLD box's Endpoint - the configs look
+# freshly generated and point at a server you are about to switch off.
+if [ -f /etc/wireguard/params ]; then
+  NEW_PUB_IP="$(ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") print $(i+1); exit}')"
+  NEW_NIC="$(ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="dev") print $(i+1); exit}')"
+  PARAM_IP="$(grep -E '^SERVER_PUB_IP=' /etc/wireguard/params | cut -d= -f2- | tr -d '"')"
+  PARAM_NIC="$(grep -E '^SERVER_PUB_NIC=' /etc/wireguard/params | cut -d= -f2- | tr -d '"')"
+
+  if [ -n "$PARAM_IP" ] && [ "$PARAM_IP" != "$NEW_PUB_IP" ]; then
+    echo "  !! /etc/wireguard/params still says SERVER_PUB_IP=$PARAM_IP"
+    echo "  !! This box is $NEW_PUB_IP. Fix this BEFORE generating any new client,"
+    echo "  !! or the new configs will point at the old server:"
+    echo "  !!   sed -i 's|^SERVER_PUB_IP=.*|SERVER_PUB_IP=$NEW_PUB_IP|' /etc/wireguard/params"
+  elif [ -n "$PARAM_IP" ]; then
+    echo "  SERVER_PUB_IP already matches this box ($NEW_PUB_IP)"
+  fi
+
+  if [ -n "$PARAM_NIC" ] && [ "$PARAM_NIC" != "$NEW_NIC" ]; then
+    echo "  !! params says SERVER_PUB_NIC=$PARAM_NIC but this box routes via $NEW_NIC."
+    echo "  !! The NAT rule will masquerade out of an interface that does not exist,"
+    echo "  !! so peers connect and handshake and still route nothing."
+    echo "  !!   sed -i 's|^SERVER_PUB_NIC=.*|SERVER_PUB_NIC=$NEW_NIC|' /etc/wireguard/params"
+  fi
+fi
+# The live NAT rules are in wg0.conf's PostUp, which params does not drive.
+for conf in /etc/wireguard/*.conf; do
+  [ -e "$conf" ] || continue
+  for nic in $(grep -oE '\-(A|D) POSTROUTING.*-o [A-Za-z0-9@._-]+' "$conf" 2>/dev/null | grep -oE '\-o [A-Za-z0-9@._-]+' | awk '{print $2}' | sort -u); do
+    ip link show "$nic" >/dev/null 2>&1 || {
+      echo "  !! $conf masquerades out of '$nic', which does not exist on this box."
+      echo "  !! Replace it with '${NEW_NIC:-your real interface}' or traffic will not route."
+    }
+  done
+done
+
+echo
 echo "=== 5. Reloading systemd and enabling services ==="
 systemctl daemon-reload
 echo "  daemon-reload done (units copied into /etc/systemd/system are now visible)"
