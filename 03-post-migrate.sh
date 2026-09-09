@@ -177,6 +177,34 @@ for conf in /etc/wireguard/*.conf; do
 done
 
 echo
+echo "=== 4c. Firewall rules naming interfaces this box does not have ==="
+# Same failure as the WireGuard NIC, one layer down. ufw's rule files are
+# copied verbatim, and iptables happily accepts a rule naming an interface
+# that does not exist - it just never matches. Worse, some ufw operations
+# fail outright with a bare "ERROR: problem running" when reloading such a
+# ruleset, with no indication of which line is at fault.
+fw_bad="no"
+for f in /etc/ufw/before.rules /etc/ufw/before6.rules /etc/ufw/after.rules \
+         /etc/ufw/after6.rules /etc/ufw/user.rules /etc/ufw/user6.rules; do
+  [ -f "$f" ] || continue
+  for nic in $(grep -oE '\-[io] [A-Za-z0-9@._-]+' "$f" 2>/dev/null | awk '{print $2}' | sort -u); do
+    # A wg interface only exists while its tunnel is up, so its absence here
+    # is not evidence of a stale rule - skip anything with a matching config.
+    [ -f "/etc/wireguard/${nic}.conf" ] && continue
+    ip link show "$nic" >/dev/null 2>&1 || {
+      echo "  !! $f references interface '$nic', which does not exist on this box"
+      fw_bad="yes"
+    }
+  done
+done
+if [ "$fw_bad" = "yes" ]; then
+  echo "  !! Fix before enabling ufw. This box routes via '${NEW_NIC:-$(ip route get 1.1.1.1 2>/dev/null | awk '"'"'{for(i=1;i<=NF;i++) if($i=="dev") print $(i+1); exit}'"'"')}':"
+  echo "  !!   sed -i 's/\\bOLDNIC\\b/NEWNIC/g' /etc/ufw/*.rules"
+else
+  echo "  none - every interface named in the ufw rules exists here"
+fi
+
+echo
 echo "=== 5. Reloading systemd and enabling services ==="
 systemctl daemon-reload
 echo "  daemon-reload done (units copied into /etc/systemd/system are now visible)"
