@@ -48,7 +48,14 @@ decision.
 3. **Still on the OLD VPS**, in this scripts folder:
    ```bash
    cp migrate.conf.example migrate.conf
-   nano migrate.conf   # set NEW_HOST, NEW_SSH_KEY=~/.ssh/migrate_key, etc.
+   nano migrate.conf   # set NEW_HOST and NEW_SSH_KEY
+   ```
+   `NEW_SSH_KEY` is the **absolute** path to the private key from step 2 —
+   `readlink -f ~/.ssh/migrate_key` prints it. A `~` will not work: the
+   config is sourced, and a tilde inside quotes stays a literal tilde that
+   ssh cannot resolve. Confirm it works before going further:
+   ```bash
+   ssh -i /root/.ssh/migrate_key root@<new-vps-ip> 'hostname'
    ```
    Do a preview first — set `DRY_RUN="yes"`, run it, and confirm the host it
    reports is the box you think it is. This script pushes to `/` on a remote
@@ -125,12 +132,16 @@ top of them, which is the outcome you want and doesn't depend on a default.
   run `certbot renew --dry-run` and confirm the renewal *timer* is scheduled.
   If certbot was a snap on the old box, the apt package list won't carry it
   and you'll need to `snap install --classic certbot` yourself.
-- **Databases**: not dumped by default (`DUMP_MYSQL`/`DUMP_POSTGRES` are
-  `no`) because getting this wrong is the easiest way to lose data. When
-  enabled, you get one dump file per database, overwritten on each run, so
-  there's never any ambiguity about which is current. They are copied but
-  **not imported** — `03-post-migrate.sh` prints the import commands for you
-  to run deliberately.
+- **Databases**: handled automatically. `DUMP_MYSQL`/`DUMP_POSTGRES` default
+  to `auto` — if a database server is installed and reachable, it's dumped and
+  copied; if none is installed, the step is skipped; if one is installed but
+  unreachable, you get a loud warning instead of a silent skip. You don't need
+  to know in advance whether you have a database or which one it is;
+  `01-discover.sh` prints a plain verdict either way.
+  Dumping is read-only and can't lose data — the risky step is the import, so
+  that stays manual: you get one dump file per database (overwritten each run,
+  so there's never ambiguity about which is current) and
+  `03-post-migrate.sh` prints the import commands for you to run deliberately.
 - **Firewall**: `03-post-migrate.sh` does *not* auto-enable `ufw` — enabling
   it wrong over SSH can lock you out permanently. Follow the checklist,
   which has you verify a second session works before you commit.

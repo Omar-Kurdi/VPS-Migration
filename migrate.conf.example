@@ -11,9 +11,12 @@
 NEW_HOST="new.server.ip.or.hostname"
 NEW_USER="root"
 NEW_SSH_PORT="22"
-# Path (ON THE OLD VPS) to a private key that logs into the NEW VPS.
-# Easiest: ssh-copy-id -p 22 root@NEW_HOST from the old VPS first, using a
-# fresh keypair, then point this at it. Leave blank to use ssh-agent/default.
+# ABSOLUTE path (ON THE OLD VPS) to the PRIVATE key that logs into the NEW
+# VPS - e.g. "/root/.ssh/migrate_key", not "migrate_key.pub". Find it with:
+#   readlink -f ~/.ssh/migrate_key
+# It must be absolute. This file is sourced, so "~/.ssh/migrate_key" stays a
+# literal tilde that ssh cannot resolve, and you get a confusing auth failure.
+# Leave blank to use ssh-agent / the default key.
 NEW_SSH_KEY=""
 
 # Preview mode. "yes" runs every rsync with --dry-run and skips the remote
@@ -53,10 +56,15 @@ EXTRA_PATHS=(
   # "/home/myuser/scripts"
 )
 
-# Set to "yes" to dump and copy MySQL/MariaDB databases automatically.
-# Requires that running `mysqldump` on the old VPS as root/sudo just works
-# (typical on Ubuntu with debian.cnf, or root socket auth).
-DUMP_MYSQL="no"
-
-# Set to "yes" to dump and copy PostgreSQL databases automatically.
-DUMP_POSTGRES="no"
+# Databases. "auto" (the default) means: if a database server is installed and
+# reachable on this box, dump it and copy it; if none is installed, skip
+# quietly; if one IS installed but can't be reached, say so loudly rather than
+# skipping silently. You do not need to know what you're running.
+#
+# Dumping is read-only and cannot lose data - the risky step is the import,
+# and 03-post-migrate.sh leaves that manual for you to run deliberately.
+#
+# Use "yes" to force a dump attempt, or "no" to skip entirely (e.g. you're
+# migrating the database separately, or it's too large to move this way).
+DUMP_MYSQL="auto"
+DUMP_POSTGRES="auto"

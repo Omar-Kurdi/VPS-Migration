@@ -230,9 +230,14 @@ if [ -d "$DUMP_DIR" ] && ls "$DUMP_DIR"/*.sql >/dev/null 2>&1; then
   [ -e "$DUMP_DIR/postgres-all.sql" ] && echo "    sudo -u postgres psql -f \"$DUMP_DIR/postgres-all.sql\""
 else
   echo "  no dumps found in $DUMP_DIR."
-  echo "  If you use MySQL/Postgres, set DUMP_MYSQL/DUMP_POSTGRES=yes in migrate.conf"
-  echo "  and re-run 02-migrate.sh, or dump and copy manually - before decommissioning"
-  echo "  the old VPS."
+  if command -v mysqld >/dev/null || command -v postgres >/dev/null; then
+    echo "  !! But a database server IS installed on this box, which means the old box"
+    echo "  !! probably had data that has not come across. Check 02-migrate.sh's PHASE 4"
+    echo "  !! output on the old VPS - it says why it did not dump - and fix it BEFORE"
+    echo "  !! decommissioning that box."
+  else
+    echo "  No database server here either, so there was most likely nothing to migrate."
+  fi
 fi
 
 echo

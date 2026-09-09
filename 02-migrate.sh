@@ -47,8 +47,8 @@ DRY_RUN="${DRY_RUN:-no}"
 INSTALL_PACKAGES="${INSTALL_PACKAGES:-yes}"
 OLD_IP="${OLD_IP:-}"
 COPY_HOME_DIRS="${COPY_HOME_DIRS:-no}"
-DUMP_MYSQL="${DUMP_MYSQL:-no}"
-DUMP_POSTGRES="${DUMP_POSTGRES:-no}"
+DUMP_MYSQL="${DUMP_MYSQL:-auto}"
+DUMP_POSTGRES="${DUMP_POSTGRES:-auto}"
 declare -p EXTRA_PATHS >/dev/null 2>&1 || EXTRA_PATHS=()
 
 SSH_OPTS=(-p "$NEW_SSH_PORT" -o StrictHostKeyChecking=accept-new)
@@ -320,7 +320,28 @@ else
   chmod 700 "$DUMP_DIR"
   did_dump="no"
 
-  if [ "$DUMP_MYSQL" = "yes" ] && command -v mysqldump >/dev/null; then
+  # "auto" is the default, and it errs toward dumping. Taking a dump is a
+  # read-only operation on this box - it cannot lose data. The step that can
+  # is the IMPORT, and 03-post-migrate.sh already leaves that manual. Refusing
+  # to dump by default protected nothing and risked you arriving on the new
+  # box without your databases because you didn't know you had any.
+  want_mysql="no"
+  case "$DUMP_MYSQL" in
+    no)  echo "  MySQL/MariaDB: skipped (DUMP_MYSQL=no)" ;;
+    yes) want_mysql="yes" ;;
+    *)   if ! command -v mysqldump >/dev/null; then
+           echo "  MySQL/MariaDB: not installed on this box, nothing to dump"
+         elif mysql -N -e "SELECT 1" >/dev/null 2>&1; then
+           want_mysql="yes"
+         else
+           echo "  !! MySQL/MariaDB IS INSTALLED here but I could not connect to it."
+           echo "  !! Your databases will NOT be migrated. This is the one failure in"
+           echo "  !! this script that you cannot fix after decommissioning the old box."
+           echo "  !! Check 'mysql -e \"SELECT 1\"' as root, then re-run."
+         fi ;;
+  esac
+
+  if [ "$want_mysql" = "yes" ]; then
     echo
     echo "=== MySQL/MariaDB dump ==="
     # One file per database, overwritten each run. Timestamped filenames would
@@ -328,6 +349,7 @@ else
     # offer you several import commands per database with no hint which is
     # current - the shortest path to restoring a stale dump over a fresh one.
     dbs=$(mysql -N -e "SHOW DATABASES;" 2>/dev/null | grep -Ev '^(information_schema|performance_schema|mysql|sys)$')
+    [ -z "$dbs" ] && echo "  server is running but has no user databases - nothing to dump"
     for db in $dbs; do
       echo "  dumping $db"
       if mysqldump --single-transaction --routines --triggers "$db" > "$DUMP_DIR/mysql-$db.sql.part"; then
@@ -340,7 +362,22 @@ else
     done
   fi
 
-  if [ "$DUMP_POSTGRES" = "yes" ] && command -v pg_dumpall >/dev/null; then
+  want_pg="no"
+  case "$DUMP_POSTGRES" in
+    no)  echo "  PostgreSQL: skipped (DUMP_POSTGRES=no)" ;;
+    yes) want_pg="yes" ;;
+    *)   if ! command -v pg_dumpall >/dev/null; then
+           echo "  PostgreSQL: not installed on this box, nothing to dump"
+         elif sudo -u postgres psql -tAc "SELECT 1" >/dev/null 2>&1; then
+           want_pg="yes"
+         else
+           echo "  !! PostgreSQL IS INSTALLED here but I could not connect to it."
+           echo "  !! Your databases will NOT be migrated. Check that the server is"
+           echo "  !! running and 'sudo -u postgres psql -c \"SELECT 1\"' works, then re-run."
+         fi ;;
+  esac
+
+  if [ "$want_pg" = "yes" ]; then
     echo
     echo "=== PostgreSQL dump (all databases + roles) ==="
     if sudo -u postgres pg_dumpall > "$DUMP_DIR/postgres-all.sql.part"; then
@@ -356,7 +393,7 @@ else
     date -Is > "$DUMP_DIR/dumped-at.txt"
     copy "$DUMP_DIR"
   else
-    echo "  no dumps taken (DUMP_MYSQL=$DUMP_MYSQL, DUMP_POSTGRES=$DUMP_POSTGRES)"
+    echo "  no dumps taken - see the reasons above (DUMP_MYSQL=$DUMP_MYSQL, DUMP_POSTGRES=$DUMP_POSTGRES)"
   fi
 fi
 

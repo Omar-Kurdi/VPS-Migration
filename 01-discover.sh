@@ -182,6 +182,34 @@ if command -v psql >/dev/null; then
   sudo -u postgres psql -lqt 2>/dev/null | cut -d '|' -f1 >> "$INV"
 fi
 
+# Plain verdict, so nobody has to interpret the raw output above to find out
+# whether they have a database at all.
+echo >> "$INV"
+echo "--- VERDICT ---" >> "$INV"
+db_found="no"
+if command -v mysqldump >/dev/null; then
+  db_found="yes"
+  if mysql -N -e "SELECT 1" >/dev/null 2>&1; then
+    n=$(mysql -N -e "SHOW DATABASES;" 2>/dev/null | grep -Evc '^(information_schema|performance_schema|mysql|sys)$')
+    echo "MySQL/MariaDB is installed and reachable, with $n user database(s)." >> "$INV"
+    echo "02-migrate.sh will dump and copy these automatically (DUMP_MYSQL=auto)." >> "$INV"
+  else
+    echo "MySQL/MariaDB is installed but this script could not connect to it." >> "$INV"
+    echo "ACTION NEEDED: fix that before migrating, or your data will be left behind." >> "$INV"
+  fi
+fi
+if command -v pg_dumpall >/dev/null; then
+  db_found="yes"
+  if sudo -u postgres psql -tAc "SELECT 1" >/dev/null 2>&1; then
+    echo "PostgreSQL is installed and reachable." >> "$INV"
+    echo "02-migrate.sh will dump and copy it automatically (DUMP_POSTGRES=auto)." >> "$INV"
+  else
+    echo "PostgreSQL is installed but this script could not connect to it." >> "$INV"
+    echo "ACTION NEEDED: fix that before migrating, or your data will be left behind." >> "$INV"
+  fi
+fi
+[ "$db_found" = "no" ] && echo "No database server installed on this box. Nothing to dump." >> "$INV"
+
 section "CRON JOBS (all users)"
 for u in $(cut -f1 -d: /etc/passwd); do
   out=$(crontab -u "$u" -l 2>/dev/null)
@@ -272,6 +300,11 @@ OLD_IP_GUESS="$(ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($
 } > "$STATE_DIR/meta.env"
 
 echo
+if [ "$db_found" = "yes" ]; then
+  echo "Database server detected - see the DATABASES verdict in the inventory."
+else
+  echo "No database server on this box."
+fi
 echo "Done. Read $INV"
 echo "Detected this box's outbound IP as: ${OLD_IP_GUESS:-<could not detect - set OLD_IP in migrate.conf>}"
 echo "Snapshots for 04-verify.sh written to $STATE_DIR/*.list"
