@@ -54,6 +54,18 @@ declare -p EXTRA_PATHS >/dev/null 2>&1 || EXTRA_PATHS=()
 SSH_OPTS=(-p "$NEW_SSH_PORT" -o StrictHostKeyChecking=accept-new)
 [ -n "$NEW_SSH_KEY" ] && SSH_OPTS+=(-i "$NEW_SSH_KEY")
 
+# A run opens ~38 separate ssh/rsync connections. Without multiplexing that is
+# 38 authentications - and if key auth isn't working, 38 password prompts.
+# ControlMaster reuses a single connection for all of them, so you authenticate
+# once and every later copy is also faster for not re-doing the handshake.
+CTL_DIR="$(mktemp -d "${TMPDIR:-/tmp}/vpsm-ssh.XXXXXX")"
+SSH_OPTS+=(-o ControlMaster=auto -o ControlPath="$CTL_DIR/cm-%r@%h:%p" -o ControlPersist=10m)
+cleanup_ssh() {
+  ssh "${SSH_OPTS[@]}" -O exit "$NEW_USER@$NEW_HOST" >/dev/null 2>&1
+  rm -rf "$CTL_DIR"
+}
+trap cleanup_ssh EXIT
+
 RSYNC_FLAGS=(-a -v -z -R)
 if [ "$DRY_RUN" = "yes" ]; then
   RSYNC_FLAGS+=(--dry-run)
@@ -73,6 +85,11 @@ if ! remote "echo ok" >/dev/null 2>&1; then
   exit 1
 fi
 echo "SSH OK: $(remote 'hostname; lsb_release -ds 2>/dev/null' | tr '\n' ' ')"
+if [ -n "$NEW_SSH_KEY" ] && ! ssh "${SSH_OPTS[@]}" -o BatchMode=yes "$NEW_USER@$NEW_HOST" true >/dev/null 2>&1; then
+  echo "!! Key authentication is NOT working - that connection used a password."
+  echo "!! Connections are multiplexed so you'll only be asked once, but fix it with:"
+  echo "!!   ssh-copy-id -p $NEW_SSH_PORT -i ${NEW_SSH_KEY}.pub $NEW_USER@$NEW_HOST"
+fi
 
 # Copy INTO the matching absolute path on the new box.
 copy() {

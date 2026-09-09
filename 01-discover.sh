@@ -66,6 +66,32 @@ else
   echo "snapd not installed" >> "$INV"
 fi
 
+section "GLOBAL PACKAGES OUTSIDE APT (npm / pip / gem)"
+echo "pkgs.list only covers apt. Anything installed with 'npm install -g'," >> "$INV"
+echo "'pip install', or 'gem install' is invisible to it - pm2 is the classic" >> "$INV"
+echo "case: the node app's systemd unit copies over, but pm2 itself does not." >> "$INV"
+echo >> "$INV"
+if command -v npm >/dev/null; then
+  echo "--- npm global packages ---" >> "$INV"
+  npm ls -g --depth=0 2>/dev/null >> "$INV"
+  npm ls -g --depth=0 --parseable 2>/dev/null | tail -n +2 | xargs -r -n1 basename \
+    | grep -Ev '^(npm|corepack)$' | sort -u > "$STATE_DIR/npm-global.list"
+  echo "(recorded $(wc -l < "$STATE_DIR/npm-global.list") for reinstall on the new box)" >> "$INV"
+else
+  echo "npm not installed" >> "$INV"
+  : > "$STATE_DIR/npm-global.list"
+fi
+if command -v pip3 >/dev/null; then
+  echo "--- pip packages installed outside apt (best effort) ---" >> "$INV"
+  pip3 list --format=freeze --not-required 2>/dev/null | head -40 >> "$INV"
+  echo "NOTE: not reinstalled automatically - check whether anything here matters." >> "$INV"
+fi
+if command -v gem >/dev/null; then
+  echo "--- gem packages ---" >> "$INV"
+  gem list --no-versions 2>/dev/null | head -40 >> "$INV"
+  echo "NOTE: not reinstalled automatically." >> "$INV"
+fi
+
 section "SYSTEMD SERVICES - enabled (will run on boot)"
 systemctl list-unit-files --state=enabled --type=service --no-pager >> "$INV" 2>&1
 

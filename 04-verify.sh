@@ -160,6 +160,20 @@ if [ -f "$STATE_DIR/snaps.list" ]; then
   done
 fi
 
+# --- npm globals -----------------------------------------------------------
+if [ -s "$STATE_DIR/npm-global.list" ]; then
+  say ""
+  say "--- GLOBAL npm PACKAGES from the old box --------------------"
+  while read -r pkg; do
+    [ -n "$pkg" ] || continue
+    if command -v npm >/dev/null && npm ls -g --depth=0 "$pkg" >/dev/null 2>&1; then
+      say "    ok      $pkg"
+    else
+      say "    MISSING $pkg   -> npm install -g $pkg"
+    fi
+  done < "$STATE_DIR/npm-global.list"
+fi
+
 # --- Cron ------------------------------------------------------------------
 say ""
 say "--- CRONTABS present but owned by a missing account ---------"

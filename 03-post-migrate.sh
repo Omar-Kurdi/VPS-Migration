@@ -182,6 +182,35 @@ elif [ -d /etc/letsencrypt ]; then
 fi
 
 echo
+echo "=== 5b. Global npm packages (apt does not carry these) ==="
+# pm2 is the reason this exists: its systemd unit and its saved process list
+# both copy across, but pm2 itself is an npm global in /usr/lib/node_modules
+# with a symlink in /usr/bin, so nothing in the apt package list brings it.
+if [ -s "$STATE_DIR/npm-global.list" ]; then
+  if command -v npm >/dev/null; then
+    to_install=""
+    while read -r pkg; do
+      [ -n "$pkg" ] || continue
+      if npm ls -g --depth=0 "$pkg" >/dev/null 2>&1; then
+        echo "  ok: $pkg"
+      else
+        to_install="$to_install $pkg"
+      fi
+    done < "$STATE_DIR/npm-global.list"
+    if [ -n "$to_install" ]; then
+      echo "  installing:$to_install"
+      # shellcheck disable=SC2086
+      npm install -g $to_install 2>&1 | tail -5 | sed 's/^/    /'
+    fi
+  else
+    echo "  !! npm is not installed here, but the old box had global npm packages:"
+    sed 's/^/       /' "$STATE_DIR/npm-global.list"
+  fi
+else
+  echo "  none recorded on the old box"
+fi
+
+echo
 echo "=== 6. Custom units that were copied but are NOT enabled ==="
 echo "(these are the 'tools you forgot about' - copied, invisible until reboot)"
 found_unenabled="no"
@@ -283,9 +312,23 @@ echo "============================================================"
 cat <<'EOF'
 
 [ ] TEST BEFORE DNS CUTOVER
-    curl -H "Host: yourdomain.com" http://<new-vps-ip>/
-    (repeat for each site/domain; confirms nginx/apache is serving the
-    right content before you touch DNS)
+    DNS still points at the old box, so you cannot just visit the domain.
+    These commands connect to the NEW box's IP while telling it which site
+    you want, which is how you test a vhost before cutover.
+
+    First, list the domains this box is configured to serve:
+      grep -rhoP 'server_name\s+\K[^;]+' /etc/nginx/sites-enabled/ \
+        | tr ' ' '\n' | grep -Ev '^(_)?$' | sort -u
+
+    Then for each one, over plain HTTP ("-H" is a literal curl flag meaning
+    "send this header" - type it exactly, and replace only the domain and IP):
+      curl -sI -H "Host: example.com" http://NEW_IP/
+
+    And over HTTPS, which also proves the copied certificate works:
+      curl -sI --resolve example.com:443:NEW_IP https://example.com/
+
+    A 200 or a 301 to your own site is success. A 404, or the default
+    "Welcome to nginx" page, means the vhost is not being matched.
 
 [ ] RUN 04-verify.sh
     It diffs this box's listening ports and enabled services against the
