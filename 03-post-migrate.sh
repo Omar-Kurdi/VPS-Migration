@@ -234,6 +234,36 @@ else
 fi
 
 echo
+echo "=== 4e. Files your configs reference that did NOT come across ==="
+# 02-migrate.sh copies /etc/squid and /etc/nginx as directories. It cannot know
+# about a file those configs point at by absolute path somewhere else - an
+# auth_param password file, an ACL blocklist, an auth_basic_user_file. Squid
+# then starts cleanly and refuses every login; nginx starts and 403s. Both look
+# like the service is fine.
+missing_refs=""
+for f in /etc/squid/squid.conf /etc/squid/conf.d/*.conf \
+         /etc/nginx/nginx.conf /etc/nginx/sites-enabled/* /etc/nginx/conf.d/*.conf \
+         /etc/apache2/apache2.conf /etc/apache2/sites-enabled/*; do
+  [ -f "$f" ] || continue
+  refs="$(sed 's/#.*//' "$f" 2>/dev/null | grep -oE '/[A-Za-z0-9_][A-Za-z0-9_./-]{3,}' | sort -u)"
+  for path in $refs; do
+    case "$path" in
+      /dev/*|/proc/*|/sys/*|/run/*|/tmp/*|/var/log/*|/var/run/*|/var/spool/*|/var/cache/*) continue ;;
+    esac
+    [ -e "$path" ] || missing_refs="$missing_refs
+  !! $f references $path - which does not exist on this box"
+  done
+done
+if [ -n "$missing_refs" ]; then
+  echo "$missing_refs" | sed '/^$/d'
+  echo "  Add these to EXTRA_PATHS in migrate.conf on the OLD box and re-run"
+  echo "  02-migrate.sh. A missing auth file does not stop the service starting -"
+  echo "  it just makes every login fail."
+else
+  echo "  none - every absolute path named in those configs exists here"
+fi
+
+echo
 echo "=== 5. Reloading systemd and enabling services ==="
 systemctl daemon-reload
 echo "  daemon-reload done (units copied into /etc/systemd/system are now visible)"
