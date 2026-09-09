@@ -182,26 +182,72 @@ else
   remote 'bash -s' <<'REMOTE_EOF'
 set -uo pipefail
 LIST=/root/vps-migration/pkgs.install.list
-if [ ! -f "$LIST" ]; then
-  echo "!! $LIST missing on this box - phase 1 did not complete. Aborting install."
-  exit 1
-fi
-export DEBIAN_FRONTEND=noninteractive
-echo "--- apt-get update ---"
-apt-get update || echo "!! apt-get update reported errors (a repo may be unreachable or unsigned) - continuing"
-echo "--- applying package selections ($(wc -l < "$LIST") entries) ---"
-dpkg --set-selections < "$LIST"
-# --force-confold keeps config files already on disk. On the first run there
-# are none, so packages ship their defaults; on later re-runs it protects the
-# configs 02-migrate.sh has since copied over.
-apt-get -y \
-  -o Dpkg::Options::=--force-confold \
-  -o Dpkg::Options::=--force-confdef \
-  dselect-upgrade \
-  || echo "!! dselect-upgrade reported issues - check 'apt-get -f install' and 'apt list --upgradable' on this box"
 mkdir -p /var/lib/vps-migration
-date -Is > /var/lib/vps-migration/packages-synced
-echo "--- package sync finished ---"
+LOG=/var/lib/vps-migration/package-install.log
+
+do_install() {
+  echo "=== package install started $(date -Is) ==="
+  if [ ! -f "$LIST" ]; then
+    echo "!! $LIST missing on this box - phase 1 did not complete. Aborting install."
+    return 1
+  fi
+  export DEBIAN_FRONTEND=noninteractive
+
+  echo "--- apt-get update ---"
+  if ! apt-get update; then
+    echo "!! apt-get update FAILED - aborting before installing anything."
+    echo "!! apt has no package lists to resolve against, so an install now would"
+    echo "!! quietly do nothing and still look like it worked. Fix the repo errors"
+    echo "!! above (usually a signing key that did not come across) and re-run."
+    return 1
+  fi
+
+  # NOT dpkg --set-selections. That only marks packages already present in
+  # dpkg's database; on a fresh box nginx/squid/certbot have never been seen,
+  # so it skips them with a warning on stderr, exits 0, and the follow-up
+  # dselect-upgrade then has nothing to do. A silent no-op that reports
+  # success is the worst possible outcome for this step, so drive apt directly
+  # with an explicit list, checked against what the repos actually offer.
+  awk '{print $1}' "$LIST" | sed 's/:.*//' | sort -u > /tmp/vpsm-want
+  apt-cache pkgnames 2>/dev/null | sort -u > /tmp/vpsm-known
+  comm -12 /tmp/vpsm-want /tmp/vpsm-known > /tmp/vpsm-installable
+  comm -23 /tmp/vpsm-want /tmp/vpsm-known > /tmp/vpsm-unavailable
+
+  echo "--- $(wc -l < /tmp/vpsm-installable) packages to install ---"
+  if [ -s /tmp/vpsm-unavailable ]; then
+    echo "--- $(wc -l < /tmp/vpsm-unavailable) not offered by any configured repo: ---"
+    sed 's/^/      /' /tmp/vpsm-unavailable
+    echo "    (usually a third-party repo whose source list or signing key did not"
+    echo "     come across - check /etc/apt/sources.list.d on this box)"
+  fi
+
+  xargs -a /tmp/vpsm-installable -r apt-get install -y \
+    -o Dpkg::Options::=--force-confold \
+    -o Dpkg::Options::=--force-confdef
+  rc=$?
+  [ "$rc" -ne 0 ] && echo "!! apt-get install exited $rc - read the errors above"
+
+  # Verify against reality. The previous version wrote a success marker just
+  # for reaching the end of the script, which is exactly how a no-op install
+  # came to report success.
+  dpkg-query -W -f='${binary:Package} ${Status}\n' 2>/dev/null \
+    | awk '$NF=="installed"{sub(/:.*/,"",$1); print $1}' | sort -u > /tmp/vpsm-have
+  want=$(wc -l < /tmp/vpsm-installable)
+  still_missing=$(comm -23 /tmp/vpsm-installable /tmp/vpsm-have | wc -l)
+
+  echo "=== finished: $((want - still_missing))/$want installed, $still_missing still missing ==="
+  if [ "$still_missing" -gt 0 ]; then
+    echo "--- still missing: ---"
+    comm -23 /tmp/vpsm-installable /tmp/vpsm-have | head -40 | sed 's/^/      /'
+  fi
+  printf 'finished=%s\nrequested=%s\nstill_missing=%s\n' \
+    "$(date -Is)" "$want" "$still_missing" > /var/lib/vps-migration/packages-synced
+  rm -f /tmp/vpsm-want /tmp/vpsm-known /tmp/vpsm-installable /tmp/vpsm-unavailable /tmp/vpsm-have
+  return 0
+}
+
+do_install 2>&1 | tee "$LOG"
+echo "(full log kept on the new box at $LOG - terminal scrollback is not a record)"
 REMOTE_EOF
 fi
 

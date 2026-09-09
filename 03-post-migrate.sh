@@ -31,19 +31,27 @@ OLD_HOSTNAME=""
 # shellcheck source=/dev/null
 [ -f "$STATE_DIR/meta.env" ] && source "$STATE_DIR/meta.env"
 
-echo "=== 1. Checking the package sync actually happened ==="
-if [ -f /var/lib/vps-migration/packages-synced ]; then
-  echo "  packages synced at $(cat /var/lib/vps-migration/packages-synced)"
-elif [ -f "$STATE_DIR/pkgs.install.list" ]; then
-  awk '{print $1}' "$STATE_DIR/pkgs.install.list" | sort -u > /tmp/.vpsm-want.$$
-  dpkg-query -W -f='${binary:Package}\n' 2>/dev/null | sed 's/:.*//' | sort -u > /tmp/.vpsm-have.$$
+echo "=== 1. Verifying the packages are actually installed ==="
+# Always check reality, never a marker file. The bug this replaces wrote a
+# success marker whenever the install script reached its end - including when
+# it had installed nothing at all.
+if [ -f "$STATE_DIR/pkgs.install.list" ]; then
+  awk '{print $1}' "$STATE_DIR/pkgs.install.list" | sed 's/:.*//' | sort -u > /tmp/.vpsm-want.$$
+  dpkg-query -W -f='${binary:Package} ${Status}\n' 2>/dev/null \
+    | awk '$NF=="installed"{sub(/:.*/,"",$1); print $1}' | sort -u > /tmp/.vpsm-have.$$
+  want="$(wc -l < /tmp/.vpsm-want.$$)"
   missing="$(comm -23 /tmp/.vpsm-want.$$ /tmp/.vpsm-have.$$ | wc -l)"
+  if [ "$missing" -eq 0 ]; then
+    echo "  all $want packages from the old box are installed here"
+  else
+    echo "  !! $missing of $want packages from the old box are NOT installed here."
+    comm -23 /tmp/.vpsm-want.$$ /tmp/.vpsm-have.$$ | head -20 | sed 's/^/       /'
+    [ "$missing" -gt 20 ] && echo "       ... and $((missing - 20)) more"
+    echo "  !! Nothing below can start a service whose package is missing. Re-run"
+    echo "  !! 02-migrate.sh on the OLD box, and read /var/lib/vps-migration/package-install.log"
+    echo "  !! here for why the install did not take."
+  fi
   rm -f /tmp/.vpsm-want.$$ /tmp/.vpsm-have.$$
-  echo "  !! no package-sync marker found; $missing packages from the old box are not installed here."
-  echo "  !! Run 02-migrate.sh on the OLD box first - it installs packages BEFORE"
-  echo "  !! copying configs, so that dpkg never has to guess what to do with a"
-  echo "  !! config file it has no record of. Installing now would risk your"
-  echo "  !! copied configs being replaced by package defaults."
 else
   echo "  no package list found - was 02-migrate.sh run against this box?"
 fi

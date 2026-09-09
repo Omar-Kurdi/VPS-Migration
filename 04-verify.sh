@@ -51,7 +51,11 @@ say() { echo "$@" | tee -a "$REPORT"; }
 # Units that differ between two Ubuntu images for reasons that have nothing to
 # do with your migration: the provider's guest agent, cloud-init, the kernel.
 # Filtering them is the difference between a report you read and one you skim.
-NOISE='^(cloud-init|cloud-config|cloud-final|walinuxagent|amazon-ssm-agent|google-(guest|osconfig|shutdown|startup|oslogin)|hv-|open-vm-tools|qemu-guest-agent|getty@|serial-getty@|user@|systemd-|e2scrub|blk-availability|lvm2-|dm-event|multipathd|open-iscsi|iscsid|finalrd|plymouth|kmod-static-nodes|setvtrgb|console-setup|keyboard-setup)'
+# ssh.service is excluded because Ubuntu 24.04 socket-activates sshd: the
+# service shows as not-running on a perfectly healthy box while ssh.socket
+# handles connections. The ports comparison above already proves sshd is
+# listening, so the unit-level entry is pure noise.
+NOISE='^(ssh\.service|ssh@|cloud-init|cloud-config|cloud-final|walinuxagent|amazon-ssm-agent|google-(guest|osconfig|shutdown|startup|oslogin)|hv-|open-vm-tools|qemu-guest-agent|getty@|serial-getty@|user@|systemd-|e2scrub|blk-availability|lvm2-|dm-event|multipathd|open-iscsi|iscsid|finalrd|plymouth|kmod-static-nodes|setvtrgb|console-setup|keyboard-setup)'
 
 # ---------------------------------------------------------------------------
 # Take the same snapshot here that 01-discover.sh took there.
