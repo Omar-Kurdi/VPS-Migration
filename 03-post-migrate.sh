@@ -205,6 +205,35 @@ else
 fi
 
 echo
+echo "=== 4d. ufw pre-flight: is the port YOU are connected on allowed? ==="
+# The checklist tells you to keep a second session open when enabling ufw.
+# This is the check that makes that advice actionable: it reads the port of
+# the SSH connection running this script and confirms the copied ruleset
+# actually permits it. The old box's rules were written for the old box - if
+# sshd here listens somewhere those rules do not cover, "ufw enable" ends the
+# session and every future one.
+if [ -n "${SSH_CONNECTION:-}" ] && command -v ufw >/dev/null; then
+  my_port="$(awk '{print $4}' <<<"$SSH_CONNECTION")"
+  added="$(ufw show added 2>/dev/null)"
+  if [ "$my_port" = "22" ]; then
+    pat='(\b22\b|OpenSSH)'
+  else
+    pat="\b$my_port\b"
+  fi
+  if echo "$added" | grep -qE "allow .*$pat"; then
+    echo "  ok: you are connected on port $my_port and ufw has a matching allow rule"
+  else
+    echo "  !! You are connected on port $my_port, and NO ufw allow rule covers it."
+    echo "  !! Running 'ufw enable' now would drop this session and lock you out."
+    echo "  !! Add it first:  ufw allow $my_port/tcp"
+  fi
+  echo "  rules currently staged (not yet enforced unless ufw is active):"
+  echo "$added" | sed 's/^/    /'
+else
+  echo "  (not an SSH session, or ufw not installed - skipping)"
+fi
+
+echo
 echo "=== 5. Reloading systemd and enabling services ==="
 systemctl daemon-reload
 echo "  daemon-reload done (units copied into /etc/systemd/system are now visible)"
