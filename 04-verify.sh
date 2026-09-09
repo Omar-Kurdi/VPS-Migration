@@ -82,10 +82,21 @@ extract_ports() { awk '{n=$2; sub(/.*:/,"",n); if (n ~ /^[0-9]+$/) print $1" "n}
 extract_ports "$STATE_DIR/ports.list" > "$WORK/ports.old.norm"
 extract_ports "$WORK/ports.list"      > "$WORK/ports.new.norm"
 
+# UDP sockets in the ephemeral range (32768-60999) are client-side sockets
+# picked at random on every restart - squid's DNS resolver is the usual source.
+# They never match across two boxes and are not services, so comparing them
+# strictly produced a permanent "NOT CLEAN" verdict driven entirely by noise.
+# They are still listed, just not counted.
+is_service_port() { awk '$1=="tcp" || ($1=="udp" && $2+0 < 32768)'; }
+is_ephemeral()    { awk '$1=="udp" && $2+0 >= 32768'; }
+
+is_service_port < "$WORK/ports.old.norm" > "$WORK/ports.old.svc"
+is_service_port < "$WORK/ports.new.norm" > "$WORK/ports.new.svc"
+
 say ""
 say "--- LISTENING PORTS: on the OLD box but not here -----------"
 say "    (each line is a service that hasn't been brought up yet)"
-missing_ports="$(comm -23 "$WORK/ports.old.norm" "$WORK/ports.new.norm")"
+missing_ports="$(comm -23 "$WORK/ports.old.svc" "$WORK/ports.new.svc")"
 if [ -n "$missing_ports" ]; then
   echo "$missing_ports" | sed 's/^/    /' | tee -a "$REPORT"
 else
@@ -95,12 +106,24 @@ fi
 say ""
 say "--- LISTENING PORTS: here but not on the old box ------------"
 say "    (usually harmless base-image services; look for surprises)"
-extra_ports="$(comm -13 "$WORK/ports.old.norm" "$WORK/ports.new.norm")"
+extra_ports="$(comm -13 "$WORK/ports.old.svc" "$WORK/ports.new.svc")"
 [ -n "$extra_ports" ] && echo "$extra_ports" | sed 's/^/    /' | tee -a "$REPORT" || say "    none"
+
+eph_old="$(is_ephemeral < "$WORK/ports.old.norm" | wc -l)"
+eph_new="$(is_ephemeral < "$WORK/ports.new.norm" | wc -l)"
+if [ "$eph_old" -gt 0 ] || [ "$eph_new" -gt 0 ]; then
+  say ""
+  say "--- ephemeral UDP sockets (informational, not a problem) ---"
+  say "    old box had $eph_old, this box has $eph_new. These are randomly"
+  say "    numbered client sockets (squid's DNS resolver, etc.) that change on"
+  say "    every restart, so they never match and are not counted as missing."
+fi
 
 # --- Enabled services ------------------------------------------------------
 say ""
 say "--- ENABLED SERVICES: on the OLD box but not here ----------"
+say "    (a WireGuard port can land in the ephemeral range above, so the"
+say "     service-level check below is what actually proves it came up)"
 say "    (these will not start on boot - the classic 'forgot about it' case)"
 grep -Ev "$NOISE" "$STATE_DIR/units-enabled.list" | sort -u > "$WORK/ue.old"
 grep -Ev "$NOISE" "$WORK/units-enabled.list"      | sort -u > "$WORK/ue.new"

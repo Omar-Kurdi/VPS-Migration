@@ -162,6 +162,18 @@ else
   echo "Old IP recorded as $OLD_IP (03-post-migrate.sh greps the copied configs for it)."
 fi
 
+# 01-discover.sh collects things 02 cannot regenerate. After a git pull adds a
+# new snapshot, an old inventory silently yields "none recorded" downstream -
+# which reads as "you have none" rather than "nobody looked".
+for f in users.list npm-global.list ports.list units-enabled.list; do
+  [ -f "$STATE_DIR/$f" ] || {
+    echo "!! $STATE_DIR/$f is missing - your inventory predates the current scripts."
+    echo "!! Re-run 01-discover.sh on this box first, or 03/04 on the new box will"
+    echo "!! report those checks as empty instead of as unchecked."
+    break
+  }
+done
+
 echo
 echo "############ PHASE 1: apt sources + signing keys ############"
 echo "(sources without their keys means every third-party repo fails NO_PUBKEY"

@@ -281,12 +281,22 @@ echo
 echo "=== 9. Hunting the old server's IP in the copied configs ==="
 if [ -n "$OLD_IP" ]; then
   echo "  Old IP: $OLD_IP  (old hostname: ${OLD_HOSTNAME:-unknown})"
-  hits="$(grep -rIn --exclude-dir=letsencrypt --exclude-dir=.git "$OLD_IP" /etc /usr/local /root /opt 2>/dev/null | grep -v "^$STATE_DIR" | head -40)"
+  # Logs, pm2 state dumps and backups mention the old IP as a matter of record,
+  # not as configuration - and one of them is a single 10KB JSON line that
+  # buries the findings that matter. Exclude them, and truncate what remains.
+  hits="$(grep -rIn \
+      --exclude-dir=letsencrypt --exclude-dir=.git --exclude-dir=logs \
+      --exclude-dir=node_modules --exclude-dir=.cache \
+      --exclude='*.log' --exclude='*.bak' --exclude='dump.pm2*' --exclude='*.gz' \
+      "$OLD_IP" /etc /usr/local /root /opt 2>/dev/null \
+    | grep -v "^$STATE_DIR" | cut -c1-160 | head -40)"
   if [ -n "$hits" ]; then
     echo "  Every line below still points at the machine you are migrating away from:"
     echo "$hits" | sed 's/^/    /'
     echo "  (nginx listen/proxy_pass, squid ACLs, fail2ban ignoreip, wireguard"
     echo "   Address, monitoring agents - all hide old IPs in plain sight)"
+    echo "  Logs, backups and pm2 state dumps are excluded: they record the old IP"
+    echo "  as history, which is correct, and there is nothing to change in them."
   else
     echo "  No references found. Good."
   fi
@@ -316,8 +326,10 @@ cat <<'EOF'
     These commands connect to the NEW box's IP while telling it which site
     you want, which is how you test a vhost before cutover.
 
-    First, list the domains this box is configured to serve:
-      grep -rhoP 'server_name\s+\K[^;]+' /etc/nginx/sites-enabled/ \
+    First, list the domains this box is configured to serve. Use nginx -T,
+    which prints the FULL effective config - server blocks live in conf.d or
+    any other include just as often as in sites-enabled:
+      nginx -T 2>/dev/null | grep -oP 'server_name\s+\K[^;]+' \
         | tr ' ' '\n' | grep -Ev '^(_)?$' | sort -u
 
     Then for each one, over plain HTTP ("-H" is a literal curl flag meaning
@@ -326,6 +338,12 @@ cat <<'EOF'
 
     And over HTTPS, which also proves the copied certificate works:
       curl -sI --resolve example.com:443:NEW_IP https://example.com/
+
+    CAREFUL: the host in --resolve must be the SAME host as in the URL.
+    "--resolve a.com:443:NEW_IP https://b.com" is not an error - curl simply
+    ignores the override and resolves b.com through real DNS, which still
+    points at the OLD box. You get a 200 from the server you were trying not
+    to test. Change both names together, or you are testing nothing.
 
     A 200 or a 301 to your own site is success. A 404, or the default
     "Welcome to nginx" page, means the vhost is not being matched.
